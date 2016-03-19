@@ -1,74 +1,46 @@
 package main
 
 import (
-	"fmt"
 	"io"
+	"log"
 	"net"
+	"os"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
 var (
-	username         = "foo"
-	password         = ssh.Password("bar")
-	serverAddrString = "localhost:2200"
-	localAddrString  = "localhost:8000"
-	remoteAddrString = "localhost:9999"
+	username   = "smarthome"
+	localPort  = ":80"
+	serverAddr = "localhost:22022"
+	remoteAddr = "localhost:5001"
 )
 
-type forwardedTCPPayload struct {
-	Addr       string
-	Port       uint32
-	OriginAddr string
-	OriginPort uint32
-}
-
-type clientPassword string
-
-func (password clientPassword) Password(user string) (string, error) {
-	return string(password), nil
-}
-
-func forward(localConn net.Conn) {
-	remote, err := net.Dial("tcp", ":8000")
-	if err != nil {
-		fmt.Println(err)
-		return
+func SSHAgent() ssh.AuthMethod {
+	if sshAgent, err := net.Dial("unix", os.Getenv("SSH_AUTH_SOCK")); err == nil {
+		return ssh.PublicKeysCallback(agent.NewClient(sshAgent).Signers)
 	}
-
-	go func() {
-		_, err = io.Copy(remote, localConn)
-		if err != nil {
-			fmt.Println("remote: io.Copy failed: %v", err)
-		}
-	}()
-
-	// Copy sshConn.Reader to localConn.Writer
-	go func() {
-		_, err = io.Copy(localConn, remote)
-		if err != nil {
-			fmt.Println("localConn: io.Copy failed: %v", err)
-		}
-	}()
+	return nil
 }
 
-func testSsh() {
+func forward() {
 	config := &ssh.ClientConfig{
 		User: username,
-		Auth: []ssh.AuthMethod{password},
+		Auth: []ssh.AuthMethod{SSHAgent()},
 	}
 
-	sshClientConn, err := ssh.Dial("tcp", serverAddrString, config)
+	sshClientConn, err := ssh.Dial("tcp", serverAddr, config)
 	if err != nil {
-		fmt.Println("ssh.Dial failed: %s", err)
+		log.Fatal("ssh.Dial failed:", err)
 		return
 	}
 
-	sshConn, err := sshClientConn.Listen("tcp", remoteAddrString)
+	sshConn, err := sshClientConn.Listen("tcp", remoteAddr)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 		return
 	}
 
@@ -78,16 +50,11 @@ func testSsh() {
 			return
 		}
 
-		fmt.Println(conn.RemoteAddr())
-
-		fmt.Println("new connection")
-
-		local, err := net.Dial("tcp", ":8000")
+		local, err := net.Dial("tcp", localPort)
 		if err != nil {
-			fmt.Println(err)
+			log.Fatal(err)
 			return
 		}
-		fmt.Println("tcp:8000")
 
 		close := func() {
 			conn.Close()
@@ -111,7 +78,7 @@ func copyConnections(a, b io.ReadWriter, close func()) {
 
 func main() {
 	for {
-		testSsh()
+		forward()
 		time.Sleep(1 * time.Second)
 	}
 }

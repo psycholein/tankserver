@@ -1,12 +1,18 @@
 package main
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
+	"os"
+	"os/user"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
@@ -24,34 +30,65 @@ type tcpipforwardPayload struct {
 	Port uint32
 }
 
+var port = 22022
+
+func isInAuthorizedKeys(key string) error {
+	usr, err := user.Current()
+	if err != nil {
+		return err
+	}
+	keyfile := filepath.Join(usr.HomeDir, ".ssh", "authorized_keys")
+
+	fr, err := os.Open(keyfile)
+	if err != nil {
+		return err
+	}
+	defer fr.Close()
+
+	buf := bufio.NewReader(fr)
+	for {
+		line, errRead := buf.ReadString('\n')
+		line = strings.TrimSpace(line)
+		if errRead != nil {
+			if errRead != io.EOF {
+				return errRead
+			}
+			if len(line) == 0 {
+				break
+			}
+		}
+		if strings.Contains(line, key) {
+			return nil
+		}
+	}
+	return errors.New("Key not found")
+}
+
+func publicKeyChecker(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+	authkey := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+	return nil, isInAuthorizedKeys(authkey)
+}
+
 func main() {
 	config := &ssh.ServerConfig{
-		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			if c.User() == "foo" && string(pass) == "bar" {
-				return nil, nil
-			}
-			return nil, fmt.Errorf("password rejected for %q", c.User())
-		},
+		PublicKeyCallback: publicKeyChecker,
 	}
-
 	privateBytes, err := ioutil.ReadFile("id_rsa")
 	if err != nil {
 		log.Fatal("Failed to load private key (./id_rsa)")
 	}
-
 	private, err := ssh.ParsePrivateKey(privateBytes)
 	if err != nil {
 		log.Fatal("Failed to parse private key")
 	}
-
 	config.AddHostKey(private)
 
-	listener, err := net.Listen("tcp", "0.0.0.0:2200")
+	listener, err := net.Listen("tcp", "0.0.0.0:22022")
 	if err != nil {
-		log.Fatalf("Failed to listen on 2200 (%s)", err)
+		log.Fatalf("Failed to listen on 22022 (%s)", err)
 	}
 
-	log.Print("Listening on 2200...")
+	log.Print("Listening on 22022...")
 	for {
 		tcpConn, err := listener.Accept()
 		if err != nil {
