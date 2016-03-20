@@ -110,6 +110,12 @@ func main() {
 
 func handleRegs(reqs <-chan *ssh.Request, sshConn *ssh.ServerConn) {
 	for req := range reqs {
+		if req.Type == "keepalive" && req.WantReply {
+			fmt.Println("alive")
+			req.Reply(true, nil)
+			continue
+		}
+
 		var payload tcpipforwardPayload
 		if err := ssh.Unmarshal(req.Payload, &payload); err != nil {
 			fmt.Println("ERROR", err)
