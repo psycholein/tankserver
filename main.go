@@ -32,14 +32,8 @@ type tcpipforwardPayload struct {
 
 var port = 22022
 
-func isInAuthorizedKeys(key string) error {
-	usr, err := user.Current()
-	if err != nil {
-		return err
-	}
-	keyfile := filepath.Join(usr.HomeDir, ".ssh", "authorized_keys")
-
-	fr, err := os.Open(keyfile)
+func authorizedKey(key, path string) error {
+	fr, err := os.Open(path)
 	if err != nil {
 		return err
 	}
@@ -64,9 +58,17 @@ func isInAuthorizedKeys(key string) error {
 	return errors.New("Key not found")
 }
 
+func authorizedKeys() string {
+	usr, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(usr.HomeDir, ".ssh", "authorized_keys")
+}
+
 func publicKeyChecker(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 	authkey := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
-	return nil, isInAuthorizedKeys(authkey)
+	return nil, authorizedKey(authkey, "./forward.pub") // authorizedKeys()
 }
 
 func main() {
