@@ -30,7 +30,7 @@ type tcpipforwardPayload struct {
 	Port uint32
 }
 
-var port = 22022
+var port = "22022"
 
 func authorizedKey(key, path string) error {
 	fr, err := os.Open(path)
@@ -85,12 +85,12 @@ func main() {
 	}
 	config.AddHostKey(private)
 
-	listener, err := net.Listen("tcp", "0.0.0.0:22022")
+	listener, err := net.Listen("tcp", "0.0.0.0:"+port)
 	if err != nil {
-		log.Fatalf("Failed to listen on 22022 (%s)", err)
+		log.Fatalf("Failed to listen on %s (%s)", port, err)
 	}
 
-	log.Print("Listening on 22022...")
+	log.Printf("Listening on %s...", port)
 	for {
 		tcpConn, err := listener.Accept()
 		if err != nil {
@@ -111,9 +111,9 @@ func main() {
 }
 
 func handleRegs(reqs <-chan *ssh.Request, sshConn *ssh.ServerConn) {
+	defer sshConn.Close()
 	for req := range reqs {
 		if req.Type == "keepalive" && req.WantReply {
-			fmt.Println("alive")
 			req.Reply(true, nil)
 			continue
 		}
@@ -131,6 +131,7 @@ func handleRegs(reqs <-chan *ssh.Request, sshConn *ssh.ServerConn) {
 			req.Reply(false, nil)
 			continue
 		}
+		defer ln.Close()
 
 		reply := (payload.Port == 0) && req.WantReply
 		if !reply {
@@ -161,12 +162,14 @@ func handleRegs(reqs <-chan *ssh.Request, sshConn *ssh.ServerConn) {
 							p.Port = payload.Port
 							p.OriginAddr, portnum, err = getHostPortFromAddr(conn.RemoteAddr())
 							if err != nil {
+								conn.Close()
 								return
 							}
 
 							p.OriginPort = uint32(portnum)
 							ch, reqs, err := sshConn.OpenChannel("forwarded-tcpip", ssh.Marshal(p))
 							if err != nil {
+								conn.Close()
 								log.Println("Open forwarded Channel: ", err.Error())
 								return
 							}
@@ -185,7 +188,6 @@ func handleRegs(reqs <-chan *ssh.Request, sshConn *ssh.ServerConn) {
 			}()
 			sshConn.Wait()
 			fmt.Println("Stop forwarding/listening on ", ln.Addr())
-			ln.Close()
 			quit <- true
 		}()
 	}
