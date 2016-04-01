@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -144,6 +145,19 @@ func handleRegs(reqs <-chan *ssh.Request, sshConn *ssh.ServerConn) {
 			quit := make(chan bool)
 
 			go func() {
+				go func() {
+					t := time.NewTicker(30 * time.Second)
+					defer t.Stop()
+					for {
+						<-t.C
+						_, _, err := sshConn.SendRequest("keepalive", true, nil)
+						if err != nil {
+							fmt.Println("closed", sshConn)
+							sshConn.Close()
+							return
+						}
+					}
+				}()
 				for {
 					select {
 					case <-quit:
